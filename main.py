@@ -4,7 +4,8 @@ import cv2
 import numpy as np
 from pdf2image import convert_from_path, convert_from_bytes
 
-from utils import get_gray_img, save_file, get_tesseract_text, clear_img_for_color, get_config_keys, get_key
+from utils import get_gray_img, save_file, get_tesseract_text, clear_img_for_color, get_config_keys, get_key, \
+    get_tesseract_number
 
 poppler_path = r'poppler-0.68.0/bin'
 
@@ -13,35 +14,95 @@ if not os.path.exists('static'):
 
 save_file_path = r'static'
 
+table_types = [
+    {
+        'key': 'members',
+        'name': 'Участники'
+    },
+    {
+        'key': 'winner',
+        'name': 'Победители'
+    },
+]
+
 config = {
-    'line_direction': True,
-    'cols': {
-        'direction': None,
-        'org_name': 2,
-        'inn': 4,
-        'project_name': 5,
-        'ball': 6,
-        'sum_pay': None
-    }
+    'identifier': 'inn',
+    'tables': [{
+        'page': '6-22',
+        'line_direction': False,
+        'type': table_types[0],
+        'cols': {
+            'direction': 4,
+            'org_name': 2,
+            'project_name': 5,
+        },
+        'cols_number': {
+            'ball': None,
+            'sum_pay': None,
+            'request_sum_pay': 7,
+            'inn': 6,
+        }
+    },
+        {
+            'page': '23-38',
+            'line_direction': True,
+            'type': table_types[0],
+            'cols': {
+                'direction': None,
+                'org_name': 2,
+                'project_name': 5,
+            },
+            'cols_number': {
+                'ball': 6,
+                'sum_pay': None,
+                'request_sum_pay': None,
+                'inn': 4,
+            }
+        },
+        {
+            'page': '39-47',
+            'line_direction': True,
+            'type': table_types[1],
+            'cols': {
+                'direction': None,
+                'org_name': 2,
+                'project_name': 5,
+            },
+            'cols_number': {
+                'ball': 6,
+                'sum_pay': 7,
+                'request_sum_pay': None,
+                'inn': 4,
+            }
+        }]
 }
 
-config['cols'] = get_config_keys(config['cols'])
+for item in config['tables']:
+    item['cols'] = get_config_keys(item['cols'])
+    item['cols_number'] = get_config_keys(item['cols_number'])
 
 
 class Image:
-    def __init__(self, img):
+    def __init__(self, img, config, page_num, result, identifier, direction):
         self.img = img
+        self.config = config
+        self.page_num = page_num
+        self.result = result
+        self.identifier = identifier
+
+        # cv2.imshow('orig', self.img)
         self.height, self.weight = self.img.shape[:2]
 
         cols, rows = self.get_col_row(self.img)
         self.img = self.rotate_img(cols + rows)
-
+        # cv2.imshow('rotate_img', self.img)
+        # cv2.waitKey(0)
         self.img_clear = clear_img_for_color(self.img)
         self.x_arr, self.y_arr = self.get_col_row_array(self.img_clear)
         print(f'col - {len(self.x_arr)} - {self.x_arr}')
         print(f'row - {len(self.y_arr)} - {self.y_arr}')
 
-        self.direction = None
+        self.direction = direction
 
     def rotate_img(self, img):
         counters, _ = cv2.findContours(img.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -49,8 +110,13 @@ class Image:
         angle = 0
         for item in counters:
             if len(item) >= 2:
-                _, _, angle = cv2.minAreaRect(item)
-                break
+                _, params, angle_local = cv2.minAreaRect(item)
+                if (
+                        ((self.height - self.height * 0.45) <= params[0] <= self.height)
+                        and ((self.weight - self.weight * 0.45) <= params[1] <= self.weight)
+                ):
+                    angle = angle_local
+                    break
         # _, _, angle = cv2.minAreaRect(counters[0])
         if 90 >= angle >= 45:
             angle = angle - 90
@@ -175,48 +241,70 @@ class Image:
 
     def get_data_table(self):
         # Цикл координаты y, таблица разделения координат x
-        data = []
+
         for i in range(len(self.y_arr) - 1):
             # Определяем число столбцов в строке и проверяем есть ли столбцы внутри строки:
             # если нет, то берем как направление
-            if self.search_cols(i) == 2 and config['line_direction']:
+            if self.search_cols(i) == 2 and self.config['line_direction']:
                 col_img = self.get_crop_row(i, row=True, isRow=True)
                 self.direction = get_tesseract_text(col_img)
             # если есть, то читаем каждый столбец
-            elif config['line_direction'] and self.direction is None:
+            elif self.config['line_direction'] and self.direction is None:
                 pass
             else:
+                data = {}
                 # Получаем строку для сохранения
                 crop_row = self.get_crop_row(i, col=True, row=True, append=True, save=True)
                 path_row_file = save_file(save_file_path, crop_row)
                 print(path_row_file)
-                data.append({'file': path_row_file})
+                data.update({'file': [path_row_file], 'page_num': self.page_num})
 
-                if config['line_direction']:
-                    data[-1].update({'direction': self.direction})
-
+                if self.config['line_direction']:
+                    data.update({'direction': self.direction})
                 for j in range(len(self.x_arr) - 1):
                     col_img = self.get_crop_row(i, j, row=True)
-                    text = get_tesseract_text(col_img)
 
-                    col_key, col_number = get_key(config['cols'], j)
+                    col_key, col_number = get_key(self.config['cols'], j)
                     if col_key is not None and col_number is not None:
-                        data[-1].update({f'{col_key}': text})
+                        data.update({f'{col_key}': get_tesseract_text(col_img)})
 
-                print(data[-1])
-                cv2.imshow(f'sub_pic_{i}', crop_row)
-                cv2.waitKey(0)
-        for item in data:
-            print(item)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+                    col_key, col_number = get_key(self.config['cols_number'], j)
+                    if col_key is not None and col_number is not None:
+                        data.update({f'{col_key}': get_tesseract_number(col_img)})
+
+                is_sequel = False
+                if data[self.identifier] == '':
+                    is_sequel = True
+                    files = self.result[-1]['file']
+                    files.append(data['file'][0])
+                    self.result[-1].update({'file': files})
+                    for item in data:
+                        if data[item] != '':
+                            self.result[-1].update({item: f'{self.result[-1][item]} {data[item]}'})
+
+                if not is_sequel:
+                    self.result.append(data)
+
+                # cv2.imshow(f'sub_pic_{i}', crop_row)
+                # cv2.waitKey(0)
+        # cv2.waitKey(0)
+        # cv2.destroyAllWindows()
 
 
 if __name__ == '__main__':
     # pages = convert_from_path(f'protocol_clear.pdf', 120, poppler_path=poppler_path)
     pages = convert_from_path(f'Протокол с приложениями.pdf', 120, poppler_path=poppler_path)
-    for i, page in enumerate(pages):
-        if i >= 22:
-            image = Image(cv2.cvtColor(np.array(page), cv2.COLOR_RGB2BGR))
-            if image.find_table():
-                image.get_data_table()
+    result = []
+    for conf in config['tables']:
+        direction = None
+        page_num = conf['page'].split('-')
+        start_page, end_page = int(page_num[0]) - 1, int(page_num[1]) - 1
+        for i, page in enumerate(pages):
+            if start_page <= i <= end_page:
+                image = Image(cv2.cvtColor(np.array(page), cv2.COLOR_RGB2BGR), conf, i + 1, result,
+                              config['identifier'], direction)
+                if image.find_table():
+                    image.get_data_table()
+                    result = image.result
+                    direction = image.direction
+                print(i + 1, result)

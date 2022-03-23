@@ -5,6 +5,7 @@ import numpy as np
 import pytesseract
 import cv2
 
+pytesseract.pytesseract.tesseract_cmd = 'C:/Program Files/Tesseract-OCR/tesseract.exe'
 
 def save_file(file_dir, img):
     file_path = f'{file_dir}/{uuid.uuid4()}.jpg'
@@ -20,8 +21,17 @@ def get_gray_img(img):
 
 
 def get_tesseract_text(img_for_read):
-    pytesseract.pytesseract.tesseract_cmd = 'C:/Program Files/Tesseract-OCR/tesseract.exe'
     text1 = pytesseract.image_to_string(img_for_read, lang="rus", config='--psm 6')
+
+    # Удалить специальные символы
+    text1 = re.findall(r'[^\*"/:?\\|<>″′‖©〈\n]', text1, re.S)
+    return "".join(text1)
+
+
+def get_tesseract_number(img_for_read):
+    text1 = pytesseract.image_to_string(img_for_read,
+                                        lang="rus",
+                                        config='--psm 6 -c tessedit_char_whitelist=0123456789,')
 
     # Удалить специальные символы
     text1 = re.findall(r'[^\*"/:?\\|<>″′‖©〈\n]', text1, re.S)
