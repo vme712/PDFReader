@@ -14,39 +14,32 @@ if not os.path.exists('static'):
 
 save_file_path = r'static'
 
-table_types = [
-    {
-        'key': 'members',
-        'name': 'Участники'
-    },
-    {
-        'key': 'winner',
-        'name': 'Победители'
-    },
-]
-
-config = {
+config_first = {
+    'file_path': f'Протокол с приложениями.pdf',
     'identifier': 'inn',
-    'tables': [{
-        'page': '6-22',
-        'line_direction': False,
-        'type': table_types[0],
-        'cols': {
-            'direction': 4,
-            'org_name': 2,
-            'project_name': 5,
-        },
-        'cols_number': {
-            'ball': None,
-            'sum_pay': None,
-            'request_sum_pay': 7,
-            'inn': 6,
-        }
-    },
+    'tables': [
         {
-            'page': '23-38',
+            'page_start': '6',
+            'page_end': '22',
+            'line_direction': False,
+            'is_winner': False,
+            'cols': {
+                'direction': 4,
+                'org_name': 2,
+                'project_name': 5,
+            },
+            'cols_number': {
+                'ball': None,
+                'sum_pay': None,
+                'request_sum_pay': 7,
+                'inn': 6,
+            }
+        },
+        {
+            'page_start': '23',
+            'page_end': '38',
             'line_direction': True,
-            'type': table_types[0],
+            'is_winner': True,
             'cols': {
                 'direction': None,
                 'org_name': 2,
@@ -60,9 +53,10 @@ config = {
             }
         },
         {
-            'page': '39-47',
+            'page_start': '39',
+            'page_end': '47',
             'line_direction': True,
-            'type': table_types[1],
+            'is_winner': True,
             'cols': {
                 'direction': None,
                 'org_name': 2,
@@ -77,6 +71,31 @@ config = {
         }]
 }
 
+config_two = {
+    'file_path': f'Протокол конкурсной комиссии от 11.08.2021.pdf',
+    'identifier': 'ogrn',
+    'tables': [{
+        'page_start': '16',
+        'page_end': '20',
+        'line_direction': True,
+        'is_winner': False,
+        'cols': {
+            'direction': None,
+            'org_name': 4,
+            'project_name': 3,
+        },
+        'cols_number': {
+            'ball': 6,
+            'sum_pay': 7,
+            'request_sum_pay': None,
+            'inn': None,
+            'ogrn': 5,
+        }
+    }]
+}
+
+config = config_first
+
 for item in config['tables']:
     item['cols'] = get_config_keys(item['cols'])
     item['cols_number'] = get_config_keys(item['cols_number'])
@@ -90,34 +109,36 @@ class Image:
         self.result = result
         self.identifier = identifier
 
-        # cv2.imshow('orig', self.img)
         self.height, self.weight = self.img.shape[:2]
 
         cols, rows = self.get_col_row(self.img)
+
         self.img = self.rotate_img(cols + rows)
-        # cv2.imshow('rotate_img', self.img)
-        # cv2.waitKey(0)
+
         self.img_clear = clear_img_for_color(self.img)
         self.x_arr, self.y_arr = self.get_col_row_array(self.img_clear)
-        print(f'col - {len(self.x_arr)} - {self.x_arr}')
-        print(f'row - {len(self.y_arr)} - {self.y_arr}')
 
         self.direction = direction
 
     def rotate_img(self, img):
         counters, _ = cv2.findContours(img.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         center = (self.weight // 2, self.height // 2)
-        angle = 0
-        for item in counters:
-            if len(item) >= 2:
-                _, params, angle_local = cv2.minAreaRect(item)
-                if (
-                        ((self.height - self.height * 0.45) <= params[0] <= self.height)
-                        and ((self.weight - self.weight * 0.45) <= params[1] <= self.weight)
-                ):
-                    angle = angle_local
-                    break
+        # angle = 0
+        c = max(counters, key=cv2.contourArea)
+        _, params, angle = cv2.minAreaRect(c)
+
+        # for item in counters:
+        #     if len(item) >= 2:
+        #         # print(cv2.contourArea(item))
+        #         _, params, angle_local = cv2.minAreaRect(item)
+        #         if (
+        #                 ((self.height - self.height * 0.45) <= params[0] <= self.height)
+        #                 and ((self.weight - self.weight * 0.45) <= params[1] <= self.weight)
+        #         ):
+        #             angle = angle_local
+        #             break
         # _, _, angle = cv2.minAreaRect(counters[0])
+
         if 90 >= angle >= 45:
             angle = angle - 90
         elif 180 == angle:
@@ -136,8 +157,8 @@ class Image:
         # Определите горизонтальные линии:
         scale = int(rows - rows * 0.95)
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, rows - scale))
-        eroded = cv2.erode(binary, kernel, iterations=1)
-        dilated_col = cv2.dilate(eroded, kernel, iterations=1)
+        eroded = cv2.erode(binary, kernel, iterations=3)
+        dilated_col = cv2.dilate(eroded, kernel, iterations=2)
 
         ys, xs = np.where(dilated_col > 0)
         x_point_arr = []
@@ -285,20 +306,13 @@ class Image:
                 if not is_sequel:
                     self.result.append(data)
 
-                # cv2.imshow(f'sub_pic_{i}', crop_row)
-                # cv2.waitKey(0)
-        # cv2.waitKey(0)
-        # cv2.destroyAllWindows()
-
 
 if __name__ == '__main__':
-    # pages = convert_from_path(f'protocol_clear.pdf', 120, poppler_path=poppler_path)
-    pages = convert_from_path(f'Протокол с приложениями.pdf', 120, poppler_path=poppler_path)
+    pages = convert_from_path(config['file_path'], 120, poppler_path=poppler_path)
     result = []
     for conf in config['tables']:
         direction = None
-        page_num = conf['page'].split('-')
-        start_page, end_page = int(page_num[0]) - 1, int(page_num[1]) - 1
+        start_page, end_page = int(conf['page_start']) - 1, int(conf['page_end']) - 1
         for i, page in enumerate(pages):
             if start_page <= i <= end_page:
                 image = Image(cv2.cvtColor(np.array(page), cv2.COLOR_RGB2BGR), conf, i + 1, result,
