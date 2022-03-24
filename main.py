@@ -16,13 +16,13 @@ save_file_path = r'static'
 
 config_first = {
     'file_path': f'Протокол с приложениями.pdf',
-    'identifier': 'inn',
     'tables': [
         {
             'page_start': '6',
             'page_end': '22',
             'line_direction': False,
             'is_winner': False,
+            'identifier': 'inn',
             'cols': {
                 'direction': 4,
                 'org_name': 2,
@@ -40,6 +40,7 @@ config_first = {
             'page_end': '38',
             'line_direction': True,
             'is_winner': True,
+            'identifier': 'inn',
             'cols': {
                 'direction': None,
                 'org_name': 2,
@@ -57,6 +58,7 @@ config_first = {
             'page_end': '47',
             'line_direction': True,
             'is_winner': True,
+            'identifier': 'inn',
             'cols': {
                 'direction': None,
                 'org_name': 2,
@@ -73,12 +75,12 @@ config_first = {
 
 config_two = {
     'file_path': f'Протокол конкурсной комиссии от 11.08.2021.pdf',
-    'identifier': 'ogrn',
     'tables': [{
-        'page_start': '16',
+        'page_start': '17',
         'page_end': '20',
         'line_direction': True,
         'is_winner': False,
+        'identifier': 'ogrn',
         'cols': {
             'direction': None,
             'org_name': 4,
@@ -94,7 +96,7 @@ config_two = {
     }]
 }
 
-config = config_first
+config = config_two
 
 for item in config['tables']:
     item['cols'] = get_config_keys(item['cols'])
@@ -171,11 +173,11 @@ class Image:
             x_point_arr.append(sort_x_point[-1])
         return len(x_point_arr)
 
-    def get_col_row(self, img):
+    def get_col_row(self, img, duplicate=False):
         gray_img = get_gray_img(img)
         binary = cv2.adaptiveThreshold(~gray_img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 35, -5)
         rows, cols = binary.shape
-        scale = 40
+        scale = 30
 
         # Получите основную ценность адаптивно
         # Определите горизонтальные линии:
@@ -184,10 +186,18 @@ class Image:
         dilated_col = cv2.dilate(eroded, kernel, iterations=1)
 
         # Определите вертикальную линию:
-        scale = 40
+        scale = 30
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, rows // scale))
         eroded = cv2.erode(binary, kernel, iterations=1)
         dilated_row = cv2.dilate(eroded, kernel, iterations=1)
+        # TODO: Может быть нужно будет удалить
+        new_img = dilated_col + dilated_row
+
+        if not duplicate:
+            contours, hierarchy = cv2.findContours(new_img.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+            cv2.drawContours(new_img, contours, -1, (255, 0, 0), 2, cv2.LINE_AA, hierarchy, 0)
+            self.get_col_row(new_img, True)
+        ###
 
         return dilated_col, dilated_row
 
@@ -196,7 +206,6 @@ class Image:
 
         # Объедините идентифицированные горизонтальные и вертикальные линии
         bitwise_and = cv2.bitwise_and(dilated_col, dilated_row)
-
         ys, xs = np.where(bitwise_and > 0)
 
         # Массив горизонтальных и вертикальных координат
@@ -276,9 +285,10 @@ class Image:
                 data = {}
                 # Получаем строку для сохранения
                 crop_row = self.get_crop_row(i, col=True, row=True, append=True, save=True)
+
                 path_row_file = save_file(save_file_path, crop_row)
                 print(path_row_file)
-                data.update({'file': [path_row_file], 'page_num': self.page_num})
+                data.update({'file': [path_row_file], 'page_num': self.page_num, 'is_winner': self.config['is_winner']})
 
                 if self.config['line_direction']:
                     data.update({'direction': self.direction})
@@ -294,17 +304,19 @@ class Image:
                         data.update({f'{col_key}': get_tesseract_number(col_img)})
 
                 is_sequel = False
-                if data[self.identifier] == '':
+                if data[self.config['identifier']] == '':
                     is_sequel = True
-                    files = self.result[-1]['file']
-                    files.append(data['file'][0])
-                    self.result[-1].update({'file': files})
+                    self.result[-1]['file'].append(data['file'][0])
+                    del data['file']
+                    # self.result[-1].update({'file': self.result[-1]['file'].append(data['file'][0])})
                     for item in data:
                         if data[item] != '':
                             self.result[-1].update({item: f'{self.result[-1][item]} {data[item]}'})
 
                 if not is_sequel:
                     self.result.append(data)
+
+                print(data)
 
 
 if __name__ == '__main__':
